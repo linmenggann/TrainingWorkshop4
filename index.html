@@ -224,6 +224,60 @@
         const form = document.getElementById('registrationForm');
         const submitBtn = document.getElementById('submitBtn');
 
+        // ==========================================
+        // 新增：網頁載入時自動檢查報名人數是否額滿
+        // ==========================================
+        window.addEventListener('DOMContentLoaded', () => {
+            // 先將按鈕設為檢查中狀態，避免使用者在檢查完成前就按送出
+            const originalBtnHtml = submitBtn.innerHTML;
+            submitBtn.innerHTML = '<span>⏳ 正在檢查名額...</span>';
+            submitBtn.disabled = true;
+            submitBtn.classList.add('opacity-75', 'cursor-wait');
+
+            // 發送 GET 請求到 Apps Script 取得目前名單
+            fetch(scriptURL)
+                .then(response => response.json())
+                .then(result => {
+                    if (result.result === 'success' && result.data) {
+                        // 過濾掉空白行，計算實際報名人數
+                        const validData = result.data.filter(row => row['姓名'] || row['機構名']);
+                        
+                        if (validData.length >= 4) {
+                            // 【已經額滿】鎖死按鈕並改變樣式
+                            submitBtn.innerHTML = '<span>🚫 本活動已額滿，停止報名</span>';
+                            submitBtn.classList.replace('from-pink-500', 'from-gray-500');
+                            submitBtn.classList.replace('to-purple-600', 'to-gray-600');
+                            submitBtn.classList.replace('hover:from-pink-600', 'hover:from-gray-600');
+                            submitBtn.classList.replace('hover:to-purple-700', 'hover:to-gray-700');
+                            submitBtn.classList.remove('cursor-wait');
+                            submitBtn.classList.add('cursor-not-allowed');
+                            submitBtn.disabled = true;
+
+                            // 更改最上方橫幅文字，提示使用者已額滿
+                            const subtitle = document.querySelector('header p');
+                            subtitle.innerHTML = '⚠️ <span class="font-bold text-yellow-300 drop-shadow-md">本活動報名人數已達上限，感謝您的支持！</span> ⚠️';
+                        } else {
+                            // 【尚未額滿】恢復按鈕原本狀態，開放報名
+                            submitBtn.innerHTML = originalBtnHtml;
+                            submitBtn.disabled = false;
+                            submitBtn.classList.remove('opacity-75', 'cursor-wait');
+                        }
+                    } else {
+                        // 沒抓到正確格式，為避免表單卡死，恢復按鈕
+                        submitBtn.innerHTML = originalBtnHtml;
+                        submitBtn.disabled = false;
+                        submitBtn.classList.remove('opacity-75', 'cursor-wait');
+                    }
+                })
+                .catch(error => {
+                    console.error('檢查人數發生錯誤:', error);
+                    // 發生錯誤 (例如網路問題)，為避免表單卡死，恢復按鈕
+                    submitBtn.innerHTML = originalBtnHtml;
+                    submitBtn.disabled = false;
+                    submitBtn.classList.remove('opacity-75', 'cursor-wait');
+                });
+        });
+
         // 表單提交與互動邏輯
         form.addEventListener('submit', function(e) {
             e.preventDefault(); // 阻止表單實際跳轉
@@ -248,13 +302,15 @@
                     modalContent.classList.add('scale-100');
                     
                     form.reset(); // 清空表單
+                    
+                    // 送出成功後，立刻鎖定按鈕避免重複送出 (因為可能已經額滿了)
+                    submitBtn.innerHTML = '<span>🎉 報名已成功送出</span>';
                 })
                 .catch(error => {
                     console.error('Error!', error.message);
                     alert('抱歉，資料傳送發生錯誤，請稍後再試。');
-                })
-                .finally(() => {
-                    // 恢復按鈕原本狀態
+                    
+                    // 發生錯誤才恢復按鈕
                     submitBtn.innerHTML = originalBtnHtml;
                     submitBtn.disabled = false;
                     submitBtn.classList.remove('opacity-75', 'cursor-not-allowed');
@@ -270,6 +326,11 @@
             modal.classList.add('opacity-0', 'pointer-events-none');
             modalContent.classList.remove('scale-100');
             modalContent.classList.add('scale-95');
+            
+            // 關閉視窗後重新整理網頁，讓系統重新檢查是否額滿
+            setTimeout(() => {
+                window.location.reload();
+            }, 300);
         });
     </script>
 </body>
