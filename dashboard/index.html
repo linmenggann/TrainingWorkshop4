@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>報名現況儀表板 - 教學訓練計畫主持人工作坊</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=Poppins:wght@500;700;800&display=swap" rel="stylesheet">
+    
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Noto Sans TC', 'sans-serif'],
+                        poppins: ['Poppins', 'sans-serif'],
+                    },
+                    colors: {
+                        glass: 'rgba(255, 255, 255, 0.05)',
+                        glassBorder: 'rgba(255, 255, 255, 0.1)',
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body {
+            background-color: #0f172a;
+            background-image: 
+                radial-gradient(circle at 15% 50%, rgba(76, 29, 149, 0.4), transparent 25%),
+                radial-gradient(circle at 85% 30%, rgba(190, 24, 93, 0.3), transparent 25%);
+            background-attachment: fixed;
+            color: #f8fafc;
+        }
+        
+        .glass-card {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+        }
+
+        /* 自訂捲軸 */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(147, 51, 234, 0.5);
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(147, 51, 234, 0.8);
+        }
+        
+        .loading-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(15, 23, 42, 0.8);
+            backdrop-filter: blur(5px);
+            z-index: 50;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            transition: opacity 0.5s ease;
+        }
+
+        .error-message {
+            display: none;
+            background-color: rgba(239, 68, 68, 0.1);
+            border-left: 4px solid #ef4444;
+            color: #fca5a5;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            border-radius: 0.5rem;
+            font-size: 0.875rem;
+            line-height: 1.6;
+        }
+    </style>
+</head>
+<body class="min-h-screen p-4 md:p-8">
+
+    <!-- 載入中遮罩 -->
+    <div id="loading" class="loading-overlay">
+        <i class="fa-solid fa-circle-notch fa-spin text-5xl text-purple-500 mb-4"></i>
+        <p class="text-white font-bold tracking-widest">資料同步中...</p>
+    </div>
+
+    <!-- 頂部導覽列 -->
+    <nav class="max-w-7xl mx-auto glass-card rounded-2xl mb-8 p-6 flex flex-col md:flex-row justify-between items-center gap-4">
+        <div class="flex items-center gap-4">
+            <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-2xl shadow-lg shadow-purple-500/30">
+                📊
+            </div>
+            <div>
+                <div class="flex items-center gap-3">
+                    <h1 class="text-2xl md:text-3xl font-black bg-clip-text text-transparent bg-gradient-to-r from-purple-300 to-pink-300">
+                        報名現況儀表板
+                    </h1>
+                    <span id="capacity-badge" class="px-3 py-1 text-xs font-bold rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30 transition-colors">報名中</span>
+                </div>
+                <p class="text-slate-400 text-sm md:text-base font-medium mt-1">教學訓練計畫主持人工作坊 🚀 <span class="text-rose-400 font-bold">(限額 4 名)</span></p>
+            </div>
+        </div>
+        <div class="flex items-center gap-4">
+            <div id="sync-status" class="px-4 py-2 rounded-full bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 text-sm font-bold flex items-center gap-2 transition-colors">
+                <span class="relative flex h-3 w-3" id="sync-ping">
+                  <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span class="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+                </span>
+                <span id="sync-text">已更新</span>
+            </div>
+            <button onclick="fetchData()" id="refresh-btn" class="px-5 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 transition-colors flex items-center gap-2 text-sm font-bold">
+                <i class="fa-solid fa-rotate-right"></i> 更新
+            </button>
+        </div>
+    </nav>
+
+    <!-- 儀表板主體 -->
+    <main class="max-w-7xl mx-auto">
+        
+        <!-- 錯誤提示訊息 (預設隱藏) -->
+        <div id="error-alert" class="error-message max-w-7xl mx-auto border border-red-500/30 shadow-lg shadow-red-500/10">
+            <h4 class="font-bold text-red-400 mb-2 text-lg"><i class="fa-solid fa-triangle-exclamation"></i> 跨網域連線失敗 (目前顯示為靜態示範資料)</h4>
+            <p>您的瀏覽器阻擋了抓取 Google Sheets 資料的請求 (Failed to fetch)。這通常是因為 Google Apps Script 的權限設定問題，請嚴格按照以下步驟修復：</p>
+            <ul class="list-decimal pl-6 mt-2 space-y-1 text-red-200">
+                <li>回到 Apps Script 編輯器，點擊右上角「<strong>部署</strong>」>「<strong>管理部署作業</strong>」。</li>
+                <li>點擊右上角的「<strong>✏️ 鉛筆圖示</strong>」進行編輯。</li>
+                <li>【非常重要】將「版本」切換為「<strong>新版本</strong>」。</li>
+                <li>【非常重要】確保「誰可以存取」設定為「<strong>所有人 (Anyone)</strong>」 (絕對不能選"須登入Google帳戶")。</li>
+                <li>點擊「部署」，然後回到這個網頁重新整理即可。</li>
+            </ul>
+        </div>
+
+        <div class="space-y-8">
+            <!-- KPI 數據卡片列 -->
+            <section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <!-- 總報名人數 -->
+                <div id="card-total" class="glass-card rounded-2xl p-6 relative overflow-hidden group border-b-4 border-b-transparent transition-colors">
+                    <div class="absolute -right-6 -top-6 text-7xl opacity-5 group-hover:scale-110 transition-transform duration-500">👥</div>
+                    <h3 class="text-slate-400 text-sm font-bold mb-2 uppercase tracking-wider">總報名人數</h3>
+                    <div class="flex items-end gap-3">
+                        <span id="kpi-total" class="font-poppins text-5xl font-black text-white transition-colors">0</span>
+                        <span class="text-sm text-slate-400 font-bold mb-1">/ 4 人</span>
+                    </div>
+                </div>
+
+                <!-- 實體參與 -->
+                <div class="glass-card rounded-2xl p-6 relative overflow-hidden group border-b-4 border-b-blue-500">
+                    <div class="absolute -right-6 -top-6 text-7xl opacity-5 group-hover:scale-110 transition-transform duration-500">🏢</div>
+                    <h3 class="text-slate-400 text-sm font-bold mb-2 uppercase tracking-wider">實體參與</h3>
+                    <div class="flex items-end gap-3">
+                        <span id="kpi-physical" class="font-poppins text-4xl font-black text-blue-400">0</span>
+                        <span id="pct-physical" class="text-slate-400 mb-1">人 (0%)</span>
+                    </div>
+                </div>
+
+                <!-- 線上參與 -->
+                <div class="glass-card rounded-2xl p-6 relative overflow-hidden group border-b-4 border-b-emerald-500">
+                    <div class="absolute -right-6 -top-6 text-7xl opacity-5 group-hover:scale-110 transition-transform duration-500">🌐</div>
+                    <h3 class="text-slate-400 text-sm font-bold mb-2 uppercase tracking-wider">線上參與</h3>
+                    <div class="flex items-end gap-3">
+                        <span id="kpi-online" class="font-poppins text-4xl font-black text-emerald-400">0</span>
+                        <span id="pct-online" class="text-slate-400 mb-1">人 (0%)</span>
+                    </div>
+                </div>
+
+                <!-- 計畫主持人比例 -->
+                <div class="glass-card rounded-2xl p-6 relative overflow-hidden group border-b-4 border-b-pink-500">
+                    <div class="absolute -right-6 -top-6 text-7xl opacity-5 group-hover:scale-110 transition-transform duration-500">👑</div>
+                    <h3 class="text-slate-400 text-sm font-bold mb-2 uppercase tracking-wider">現任主持人</h3>
+                    <div class="flex items-end gap-3">
+                        <span id="kpi-director" class="font-poppins text-4xl font-black text-pink-400">0</span>
+                        <span id="pct-director" class="text-slate-400 mb-1">人 (0%)</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 圖表分析區 -->
+            <section class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- 職類分佈 (長條圖) -->
+                <div class="glass-card rounded-2xl p-6">
+                    <h3 class="text-lg font-bold text-white mb-6 flex items-center gap-2">
+                        <i class="fa-solid fa-chart-simple text-purple-400"></i> 負責職類分佈
+                    </h3>
+                    <div class="relative h-[300px] w-full">
+                        <canvas id="categoryChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- 參與方式與身分 (環形圖) -->
+                <div class="glass-card rounded-2xl p-6">
+                    <h3 class="text-lg font-bold text-white mb-6 flex items-center gap-2">
+                        <i class="fa-solid fa-chart-pie text-pink-400"></i> 參與方式比例
+                    </h3>
+                    <div class="relative h-[300px] w-full flex justify-center">
+                        <canvas id="modeChart"></canvas>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 最新報名名單表格 -->
+            <section class="glass-card rounded-2xl p-6 overflow-hidden flex flex-col">
+                <div class="flex justify-between items-center mb-6">
+                    <h3 class="text-lg font-bold text-white flex items-center gap-2">
+                        <i class="fa-solid fa-list text-blue-400"></i> 最新報名名單
+                    </h3>
+                    <span class="text-sm text-slate-400">顯示最新 5 筆資料</span>
+                </div>
+                
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="border-b border-white/10 text-slate-400 text-sm font-bold tracking-wider">
+                                <th class="py-4 px-4 font-poppins min-w-[160px]">報名時間</th>
+                                <th class="py-4 px-4 min-w-[100px]">姓名</th>
+                                <th class="py-4 px-4 min-w-[150px]">機構名稱</th>
+                                <th class="py-4 px-4 min-w-[120px]">職稱</th>
+                                <th class="py-4 px-4 min-w-[120px]">負責職類</th>
+                                <th class="py-4 px-4 min-w-[100px]">參與方式</th>
+                            </tr>
+                        </thead>
+                        <tbody id="table-body" class="text-slate-200">
+                            <!-- 資料將由 JS 動態生成 -->
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <!-- 腳本邏輯 -->
+    <script>
+        // ==========================================
+        // 1. 替換成您的 Apps Script Web App URL ！！！
+        // ==========================================
+        const scriptURL = 'https://script.google.com/macros/s/AKfycbxengwZvIUcQ5JvJCUJIP2AmwBg8vabIHJeq6pehh3vhMlBEkebog7S7E6OU9piRGcZ/exec'; 
+        
+        // 全域圖表變數
+        let categoryChartInst;
+        let modeChartInst;
+
+        // 初始化 Chart.js (空資料狀態)
+        function initCharts() {
+            Chart.defaults.color = '#94a3b8';
+            Chart.defaults.font.family = "'Noto Sans TC', sans-serif";
+            Chart.defaults.plugins.tooltip.backgroundColor = 'rgba(15, 23, 42, 0.9)';
+            Chart.defaults.plugins.tooltip.titleColor = '#f8fafc';
+            Chart.defaults.plugins.tooltip.padding = 12;
+            Chart.defaults.plugins.tooltip.cornerRadius = 8;
+
+            // 長條圖 (職類)
+            const ctxCat = document.getElementById('categoryChart').getContext('2d');
+            categoryChartInst = new Chart(ctxCat, {
+                type: 'bar',
+                data: { labels: [], datasets: [{ label: '報名人數', data: [], 
+                    backgroundColor: ['rgba(168, 85, 247, 0.7)', 'rgba(236, 72, 153, 0.7)', 'rgba(59, 130, 246, 0.7)', 'rgba(16, 185, 129, 0.7)', 'rgba(245, 158, 11, 0.7)', 'rgba(99, 102, 241, 0.7)'],
+                    borderWidth: 1, borderRadius: 6
+                }]},
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, grid: { color: 'rgba(255, 255, 255, 0.05)' } }, x: { grid: { display: false } } } }
+            });
+
+            // 環形圖 (參與方式)
+            const ctxMode = document.getElementById('modeChart').getContext('2d');
+            modeChartInst = new Chart(ctxMode, {
+                type: 'doughnut',
+                data: { labels: ['實體參與', '線上參與'], datasets: [{ data: [0, 0], backgroundColor: ['rgba(59, 130, 246, 0.8)', 'rgba(16, 185, 129, 0.8)'], borderColor: ['rgba(59, 130, 246, 1)', 'rgba(16, 185, 129, 1)'], borderWidth: 2 }] },
+                options: { responsive: true, maintainAspectRatio: false, cutout: '70%', plugins: { legend: { position: 'bottom', labels: { padding: 20, color: '#e2e8f0', font: { size: 14 } } } } }
+            });
+        }
+
+        // 建立一組假的備用資料，避免 Fetch 失敗時整個儀表板空白
+        function getFallbackData() {
+            return [
+                { "Timestamp": "2026/01/20 09:12", "姓名": "(示範) 王大明", "機構名": "奇美醫院", "職稱": "護理師", "負責的職類": "護理", "參與方式": "實體", "是否擔任計畫主持人": "是" },
+                { "Timestamp": "2026/01/20 10:45", "姓名": "(示範) 李美麗", "機構名": "成大醫院", "職稱": "藥師", "負責的職類": "藥事", "參與方式": "線上", "是否擔任計畫主持人": "否" },
+                { "Timestamp": "2026/01/21 11:30", "姓名": "(示範) 陳建宏", "機構名": "奇美醫院", "職稱": "醫檢師", "負責的職類": "醫事檢驗", "參與方式": "實體", "是否擔任計畫主持人": "是" },
+                { "Timestamp": "2026/01/22 14:05", "姓名": "(示範) 林心如", "機構名": "新樓醫院", "職稱": "營養師", "負責的職類": "營養", "參與方式": "實體", "是否擔任計畫主持人": "否" },
+                { "Timestamp": "2026/01/22 16:30", "姓名": "(示範) 郭佳佳", "機構名": "奇美醫院", "職稱": "護理長", "負責的職類": "護理", "參與方式": "線上", "是否擔任計畫主持人": "是" }
+            ];
+        }
+
+        // 抓取並更新資料
+        async function fetchData() {
+            const btn = document.getElementById('refresh-btn');
+            const icon = btn.querySelector('i');
+            const statusBadge = document.getElementById('sync-status');
+            const statusText = document.getElementById('sync-text');
+            const syncPing = document.getElementById('sync-ping');
+            const errorAlert = document.getElementById('error-alert');
+            
+            // 變更為載入中狀態
+            icon.classList.add('fa-spin');
+            statusBadge.classList.replace('bg-emerald-500/20', 'bg-amber-500/20');
+            statusBadge.classList.replace('text-emerald-400', 'text-amber-400');
+            statusText.innerText = '同步中...';
+            errorAlert.style.display = 'none'; // 隱藏錯誤提示
+
+            try {
+                // 發送最單純的 GET 請求，移除所有額外參數以避免觸發 preflight options
+                const response = await fetch(scriptURL);
+                
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                
+                const result = await response.json();
+
+                if (result.result === 'success' && result.data) {
+                    processData(result.data);
+                    
+                    // 恢復成功狀態
+                    statusBadge.classList.remove('bg-amber-500/20', 'bg-red-500/20');
+                    statusBadge.classList.add('bg-emerald-500/20');
+                    statusBadge.classList.remove('text-amber-400', 'text-red-400');
+                    statusBadge.classList.add('text-emerald-400');
+                    statusText.innerText = '已更新';
+                    if(syncPing) syncPing.style.display = 'flex';
+                } else {
+                    throw new Error('資料格式錯誤或為空');
+                }
+            } catch (error) {
+                console.error("Fetch error:", error);
+                
+                // 發生錯誤時的狀態呈現
+                statusText.innerText = '連線失敗 (顯示示範資料)';
+                statusBadge.classList.replace('bg-amber-500/20', 'bg-red-500/20');
+                statusBadge.classList.replace('text-amber-400', 'text-red-400');
+                if(syncPing) syncPing.style.display = 'none';
+                
+                // 顯示上方紅色錯誤提示框
+                errorAlert.style.display = 'block';
+
+                // 使用備用資料確保畫面不會完全空白
+                processData(getFallbackData());
+                
+            } finally {
+                // 取消按鈕旋轉動畫
+                icon.classList.remove('fa-spin');
+                
+                // 隱藏初始的 Loading 遮罩
+                const loadingOverlay = document.getElementById('loading');
+                if(loadingOverlay) {
+                    loadingOverlay.style.opacity = '0';
+                    setTimeout(() => loadingOverlay.style.display = 'none', 500);
+                }
+            }
+        }
+
+        // 處理資料並更新畫面
+        function processData(data) {
+            // 防錯：過濾掉空列
+            const validData = data.filter(row => row['姓名'] || row['機構名']);
+            const total = validData.length;
+            
+            if(total === 0) return; // 沒資料就不處理
+
+            let physical = 0, online = 0, director = 0;
+            let categories = {};
+
+            validData.forEach(row => {
+                // 計算 KPIs
+                if (row['參與方式'] === '實體' || row['參與方式'] === '實體參與') physical++;
+                if (row['參與方式'] === '線上' || row['參與方式'] === '線上參與') online++;
+                if (row['是否擔任計畫主持人'] && row['是否擔任計畫主持人'].includes('是')) director++;
+
+                // 計算職類
+                let cat = row['負責的職類'];
+                if (cat) {
+                    categories[cat] = (categories[cat] || 0) + 1;
+                }
+            });
+
+            // 1. 更新 KPI 數字與額滿狀態
+            const MAX_CAPACITY = 4;
+            const kpiTotalEl = document.getElementById('kpi-total');
+            const capacityBadge = document.getElementById('capacity-badge');
+            const cardTotal = document.getElementById('card-total');
+
+            kpiTotalEl.innerText = total;
+
+            if (total >= MAX_CAPACITY) {
+                kpiTotalEl.classList.replace('text-white', 'text-rose-400');
+                cardTotal.classList.replace('border-b-transparent', 'border-b-rose-500');
+                capacityBadge.textContent = '已額滿';
+                capacityBadge.className = 'px-3 py-1 text-xs font-bold rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30 transition-colors shadow-lg shadow-rose-500/20';
+            } else {
+                if (kpiTotalEl.classList.contains('text-rose-400')) {
+                    kpiTotalEl.classList.replace('text-rose-400', 'text-white');
+                    cardTotal.classList.replace('border-b-rose-500', 'border-b-transparent');
+                }
+                capacityBadge.textContent = '報名中';
+                capacityBadge.className = 'px-3 py-1 text-xs font-bold rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30 transition-colors';
+            }
+
+            document.getElementById('kpi-physical').innerText = physical;
+            document.getElementById('pct-physical').innerText = `人 (${Math.round((physical/total)*100 || 0)}%)`;
+            document.getElementById('kpi-online').innerText = online;
+            document.getElementById('pct-online').innerText = `人 (${Math.round((online/total)*100 || 0)}%)`;
+            document.getElementById('kpi-director').innerText = director;
+            document.getElementById('pct-director').innerText = `人 (${Math.round((director/total)*100 || 0)}%)`;
+
+            // 2. 更新環形圖
+            modeChartInst.data.datasets[0].data = [physical, online];
+            modeChartInst.update();
+
+            // 3. 更新長條圖 (排序由高到低)
+            const sortedCategories = Object.entries(categories).sort((a, b) => b[1] - a[1]);
+            categoryChartInst.data.labels = sortedCategories.map(item => item[0]);
+            categoryChartInst.data.datasets[0].data = sortedCategories.map(item => item[1]);
+            categoryChartInst.update();
+
+            // 4. 更新最新 5 筆表格
+            const tableBody = document.getElementById('table-body');
+            tableBody.innerHTML = '';
+            
+            // 取最後 5 筆並反轉 (最新的在最上)
+            const latestFive = validData.slice(-5).reverse();
+            
+            latestFive.forEach(row => {
+                const tr = document.createElement('tr');
+                tr.className = 'border-b border-white/5 hover:bg-white/5 transition-colors';
+                
+                // 判斷參與方式 Badge 樣式
+                const isPhysical = row['參與方式'] === '實體' || row['參與方式'] === '實體參與';
+                const modeBadge = isPhysical 
+                    ? `<span class="px-3 py-1 bg-blue-500/20 text-blue-300 rounded-full text-sm font-bold border border-blue-500/30">🏢 實體</span>`
+                    : `<span class="px-3 py-1 bg-emerald-500/20 text-emerald-300 rounded-full text-sm font-bold border border-emerald-500/30">🌐 線上</span>`;
+
+                // 判斷職類 Badge 顏色 (隨機或指定皆可，這邊用紫色底)
+                const catBadge = `<span class="px-3 py-1 bg-purple-500/20 text-purple-300 rounded-lg text-sm">${row['負責的職類'] || '無'}</span>`;
+
+                // 處理時間格式，如果太長只取年月日+時間
+                let dateStr = row['報名時間'] || row['Timestamp'] || '';
+                if(dateStr.length > 16) dateStr = new Date(dateStr).toLocaleString('zh-TW', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute:'2-digit' });
+
+                tr.innerHTML = `
+                    <td class="py-4 px-4 font-poppins text-slate-400">${dateStr}</td>
+                    <td class="py-4 px-4 font-bold text-white">${row['姓名'] || '未填'}</td>
+                    <td class="py-4 px-4">${row['機構名'] || '未填'}</td>
+                    <td class="py-4 px-4 text-slate-400">${row['職稱'] || '未填'}</td>
+                    <td class="py-4 px-4">${catBadge}</td>
+                    <td class="py-4 px-4">${modeBadge}</td>
+                `;
+                tableBody.appendChild(tr);
+            });
+        }
+
+        // 頁面載入完成後啟動
+        window.onload = () => {
+            initCharts();
+            fetchData();
+            // 設定每 30 秒自動更新一次資料
+            setInterval(fetchData, 30000);
+        };
+    </script>
+</body>
+</html>
